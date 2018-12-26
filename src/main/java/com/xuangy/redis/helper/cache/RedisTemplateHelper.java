@@ -87,6 +87,7 @@ public class RedisTemplateHelper {
         return true;
     }
 
+    @SuppressWarnings("unchecked")
     public Long ttl(int dbIndex, String key) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
 //        return redisTemplate.execute(new RedisCallback<Long>() {
@@ -135,6 +136,7 @@ public class RedisTemplateHelper {
         return result;
     }
 
+    @SuppressWarnings("unchecked")
     public <T> Boolean batchSet(int dbIndex, Map<String, T> map) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
 //        redisTemplate.executePipelined(new RedisCallback<Object>() {
