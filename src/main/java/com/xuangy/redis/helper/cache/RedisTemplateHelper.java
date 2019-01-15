@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisConnectionCommands;
+import org.springframework.data.redis.connection.RedisServerCommands;
 import org.springframework.data.redis.connection.RedisZSetCommands;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisCallback;
@@ -90,12 +92,6 @@ public class RedisTemplateHelper {
     @SuppressWarnings("unchecked")
     public Long ttl(int dbIndex, String key) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
-//        return redisTemplate.execute(new RedisCallback<Long>() {
-//            @Override
-//            public Long doInRedis(RedisConnection connection) throws DataAccessException {
-//                return connection.ttl(((RedisSerializer<String>) redisTemplate.getKeySerializer()).serialize(key));
-//            }
-//        });
         return (Long) redisTemplate.execute((RedisCallback)(connection) -> connection.ttl(((RedisSerializer<String>) redisTemplate.getKeySerializer()).serialize(key)));
     }
 
@@ -139,22 +135,6 @@ public class RedisTemplateHelper {
     @SuppressWarnings("unchecked")
     public <T> Boolean batchSet(int dbIndex, Map<String, T> map) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
-//        redisTemplate.executePipelined(new RedisCallback<Object>() {
-//            @Override
-//            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-//                for (Map.Entry<String, T> entry : map.entrySet()) {
-//                    String json;
-//                    try {
-//                        json = JSON.toJSONString(entry.getValue());
-//                    } catch (Exception e) {
-//                        continue;
-//                    }
-//                    connection.set(((RedisSerializer<String>) redisTemplate.getKeySerializer()).serialize(entry.getKey()),
-//                            ((RedisSerializer<String>) redisTemplate.getValueSerializer()).serialize(json));
-//                }
-//                return null;
-//            }
-//        });
         redisTemplate.execute((RedisCallback)(connection)-> {
             for (Map.Entry<String, T> entry : map.entrySet()) {
                 String json;
@@ -178,19 +158,6 @@ public class RedisTemplateHelper {
     public  Map<String, String> batchGet(int dbIndex, Map<String, String> map) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, String> resultMap = new HashMap<>();
-//        List<Object> resultList  = redisTemplate.executePipelined(new RedisCallback<Object>() {
-//            @Override
-//            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-//                for (Map.Entry<String, String> entry : map.entrySet()) {
-//                    try {
-//                        connection.get(redisTemplate.getStringSerializer().serialize(entry.getValue()));
-//                    } catch (Exception e) {
-//                        logger.error("RedisTemplateHelper.multiget error", e);
-//                    }
-//                }
-//                return null;
-//            }
-//        });
         List<Object> resultList  = redisTemplate.executePipelined((RedisCallback)(connection)->{
             for (Map.Entry<String, String> entry : map.entrySet()) {
                 try {
@@ -222,19 +189,6 @@ public class RedisTemplateHelper {
     public <T> Map<String, T> batchGet(int dbIndex, Map<String, String> map, Class<T> clazz) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, T> resultMap = new HashMap<>();
-//        List<Object> resultList  = redisTemplate.executePipelined(new RedisCallback<Object>() {
-//            @Override
-//            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-//                for (Map.Entry<String, String> entry : map.entrySet()) {
-//                    try {
-//                        connection.get(redisTemplate.getStringSerializer().serialize(entry.getValue()));
-//                    } catch (Exception e) {
-//                        logger.error("RedisTemplateHelper.batchGet error", e);
-//                    }
-//                }
-//                return null;
-//            }
-//        });
         List<Object> resultList  = redisTemplate.executePipelined((RedisCallback)(connection)->{
             for (Map.Entry<String, String> entry : map.entrySet()) {
                 try {
@@ -270,19 +224,6 @@ public class RedisTemplateHelper {
     public <T> Map<String, List<T>> batchGetList(int dbIndex, Map<String, String> map, Class<T> clazz) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, List<T>> resultMap = new HashMap<>();
-//        List<Object> resultList  = redisTemplate.executePipelined(new RedisCallback<Object>() {
-//            @Override
-//            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-//                for (Map.Entry<String, String> entry : map.entrySet()) {
-//                    try {
-//                        connection.get(redisTemplate.getStringSerializer().serialize(entry.getValue()));
-//                    } catch (Exception e) {
-//                        logger.error("RedisTemplateHelper.multigetList error", e);
-//                    }
-//                }
-//                return null;
-//            }
-//        });
         List<Object> resultList  = redisTemplate.executePipelined((RedisCallback)(connection)-> {
             for (Map.Entry<String, String> entry : map.entrySet()) {
                 try {
@@ -352,27 +293,24 @@ public class RedisTemplateHelper {
     public Set<String> scan(int dbIndex, String pattern) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         ScanOptions scanOptions = ScanOptions.scanOptions().match(pattern).build();
-        return redisTemplate.execute(new RedisCallback<Set<String>>() {
-            @Override
-            public Set<String> doInRedis(RedisConnection connection) throws DataAccessException {
-                boolean done = false;
-                Set<String> keySet = new HashSet<String>();
-                // the while-loop below makes sure that we'll get a valid cursor -
-                // by looking harder if we don't get a result initially
-                while (!done) {
-                    Cursor<byte[]> c = connection.scan(scanOptions);
-                    try {
-                        while (c.hasNext()) {
-                            byte[] b = c.next();
-                            keySet.add(new String(b));
-                        }
-                        done = true; //we've made it here, lets go away
-                    } catch (NoSuchElementException nse) {
-                        logger.error("RedisTemplateHelper.scan error", nse);
+        return redisTemplate.execute((RedisCallback<Set<String>>) connection -> {
+            boolean done = false;
+            Set<String> keySet = new HashSet<String>();
+            // the while-loop below makes sure that we'll get a valid cursor -
+            // by looking harder if we don't get a result initially
+            while (!done) {
+                Cursor<byte[]> c = connection.scan(scanOptions);
+                try {
+                    while (c.hasNext()) {
+                        byte[] b = c.next();
+                        keySet.add(new String(b));
                     }
+                    done = true; //we've made it here, lets go away
+                } catch (NoSuchElementException nse) {
+                    logger.error("RedisTemplateHelper.scan error", nse);
                 }
-                return keySet;
             }
+            return keySet;
         });
     }
 
@@ -381,7 +319,13 @@ public class RedisTemplateHelper {
         return redisTemplate.opsForValue().increment(key, delta);
     }
 
-    //发布消息到Channel
+    /**
+     * 发布消息到Channel
+     * @param channel
+     * @param message
+     * @param <T>
+     * @return
+     */
     public <T> Boolean convertAndSend(String channel, T message) {
         try {
             String json = JSON.toJSONString(message);
@@ -410,24 +354,14 @@ public class RedisTemplateHelper {
      * @return 时间戳
      */
     public Long time() {
-        return redisTemplate.execute(new RedisCallback<Long>() {
-            @Override
-            public Long doInRedis(RedisConnection connection) throws DataAccessException {
-                return connection.time();
-            }
-        });
+        return redisTemplate.execute((RedisCallback<Long>) RedisServerCommands::time);
     }
 
     /**
      * PING
      */
     public String ping() {
-        return redisTemplate.execute(new RedisCallback<String>() {
-            @Override
-            public String doInRedis(RedisConnection connection) throws DataAccessException {
-                return connection.ping();
-            }
-        });
+        return redisTemplate.execute((RedisCallback<String>) RedisConnectionCommands::ping);
     }
 
     // ops for list
@@ -715,7 +649,8 @@ public class RedisTemplateHelper {
     }
 
     /**
-     *
+     * HGET key field
+     * then convert to object
      * @param dbIndex
      * @param key
      * @param hashKey
@@ -752,8 +687,8 @@ public class RedisTemplateHelper {
     }
 
     /**
-     * HGETALL key
-     * Get all the fields and values in a hash
+     * Batch HGETALL key
+     * Batch operate get all the fields and values in a hash
      * @param dbIndex
      * @param map
      * @return
@@ -762,18 +697,15 @@ public class RedisTemplateHelper {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
 
         Map<String, Map<String, String>> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, String> entry : map.entrySet()) {
-                    try {
-                        connection.hGetAll(redisTemplate.getStringSerializer().serialize(entry.getValue()));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multihgetall error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                try {
+                    connection.hGetAll(redisTemplate.getStringSerializer().serialize(entry.getValue()));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multihgetall error", e);
                 }
-                return null;
             }
+            return null;
         });
         if (resultList != null && resultList.size() == map.size()) {
             int i = 0;
@@ -789,7 +721,8 @@ public class RedisTemplateHelper {
     }
 
 	/**
-	 *
+	 * HGETALL key
+     * Get all the fields and values in a hash, then convert object to list
 	 * @param dbIndex
 	 * @param key
 	 * @param clazz
@@ -817,26 +750,26 @@ public class RedisTemplateHelper {
     }
 
     /**
-     * 批量获取一组Hash的所有值
-     * 参数中map的key是返回值resultMap的key, value是redis缓存的key
-     * 如: 批量获取多个队列的callMembers, callMembers是hash方式存储,每一个hashKey对应一个CallMember
+     * Batch HGETALL key
+     * Batch operate get all the fields and values in a hash, then convert to object
+     * @param dbIndex
+     * @param map
+     * @param clazz
+     * @param <T>
+     * @return
      */
     public <T> Map<String,List<T>> multihgetList(int dbIndex, Map<String, String> map, Class<T> clazz) {
-
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String,List<T>> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, String> entry : map.entrySet()) {
-                    try {
-                        connection.hGetAll(redisTemplate.getStringSerializer().serialize(entry.getValue()));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multihgetList error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                try {
+                    connection.hGetAll(redisTemplate.getStringSerializer().serialize(entry.getValue()));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multihgetList error", e);
                 }
-                return null;
             }
+            return null;
         });
         if (resultList != null && resultList.size() == map.size()) {
             int i = 0;
@@ -895,28 +828,30 @@ public class RedisTemplateHelper {
      * @param key
      * @return
      */
-    public Set<Object> hkeys (int dbIndex, String key) {
+    public Set<Object> hkeys(int dbIndex, String key) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         return redisTemplate.opsForHash().keys(key);
     }
 
-    //批量获取keys
+    /**
+     * HKEYS key
+     * Batch get all the fields in a hash
+     * @param dbIndex
+     * @param map
+     * @return
+     */
     public Map<String, Set<String>> multihkeys(int dbIndex, Map<String, String> map) {
-
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String,  Set<String>> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, String> entry : map.entrySet()) {
-                    try {
-                        connection.hKeys(redisTemplate.getStringSerializer().serialize(entry.getValue()));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multihgetList error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                try {
+                    connection.hKeys(redisTemplate.getStringSerializer().serialize(entry.getValue()));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multihgetList error", e);
                 }
-                return null;
             }
+            return null;
         });
         if (resultList != null && resultList.size() == map.size()) {
             int i = 0;
@@ -1026,19 +961,16 @@ public class RedisTemplateHelper {
     public Map<String, Long> multihlen(int dbIndex, Map<String, String> keyMap) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, Long> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (String value : keyMap.values()) {
-                    try {
-                        connection.hLen(redisTemplate.getStringSerializer().serialize(value));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multihlen error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (String value : keyMap.values()) {
+                try {
+                    connection.hLen(redisTemplate.getStringSerializer().serialize(value));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multihlen error", e);
                 }
-
-                return null;
             }
+
+            return null;
         });
         if (resultList != null && resultList.size() == keyMap.size()) {
             int i = 0;
@@ -1056,19 +988,16 @@ public class RedisTemplateHelper {
     public Map<String, Object> multihget(int dbIndex, Map<String, String> keyMap, String field) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, Object> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (String value : keyMap.values()) {
-                    try {
-                        connection.hGet(redisTemplate.getStringSerializer().serialize(value), redisTemplate.getStringSerializer().serialize(field));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multihget error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (String value : keyMap.values()) {
+                try {
+                    connection.hGet(redisTemplate.getStringSerializer().serialize(value), redisTemplate.getStringSerializer().serialize(field));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multihget error", e);
                 }
-
-                return null;
             }
+
+            return null;
         });
         if (resultList != null && resultList.size() == keyMap.size()) {
             int i = 0;
@@ -1086,24 +1015,21 @@ public class RedisTemplateHelper {
     public Map<String, Map<String, String>> multihget(int dbIndex, Map<String, String> keyMap, List<String> fieldList) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, Map<String, String>> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                //list转成byte数组
-                byte[][] fields = new byte[fieldList.size()][];
-                for (int  i = 0; i < fieldList.size(); i++) {
-                    fields[i] = redisTemplate.getStringSerializer().serialize(fieldList.get(i));
-                }
-                for (String value : keyMap.values()) {
-                    try {
-                        connection.hMGet(redisTemplate.getStringSerializer().serialize(value), fields);
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multihget error", e);
-                    }
-                }
-
-                return null;
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            //list转成byte数组
+            byte[][] fields = new byte[fieldList.size()][];
+            for (int  i = 0; i < fieldList.size(); i++) {
+                fields[i] = redisTemplate.getStringSerializer().serialize(fieldList.get(i));
             }
+            for (String value : keyMap.values()) {
+                try {
+                    connection.hMGet(redisTemplate.getStringSerializer().serialize(value), fields);
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multihget error", e);
+                }
+            }
+
+            return null;
         });
         if (resultList != null && resultList.size() == keyMap.size()) {
             int i = 0;
@@ -1126,19 +1052,15 @@ public class RedisTemplateHelper {
     public <T> Map<String, T> multihget(int dbIndex, String key, Map<String, String> map, Class<T> clazz) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, T> resultMap = new HashMap<String, T>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, String> entry : map.entrySet()) {
-                    try {
-                        connection.hGet(redisTemplate.getStringSerializer().serialize(key)
-                                , redisTemplate.getStringSerializer().serialize(entry.getValue()));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multiget error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                try {
+                    connection.hGet(redisTemplate.getStringSerializer().serialize(key), redisTemplate.getStringSerializer().serialize(entry.getValue()));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multiget error", e);
                 }
-                return null;
             }
+            return null;
         });
         if (resultList != null && resultList.size() == map.size()) {
             int i = 0;
@@ -1159,15 +1081,12 @@ public class RedisTemplateHelper {
 
     public Boolean multihincrby(int dbIndex, String key, Map<String, Long> map) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
-        redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, Long> entry : map.entrySet()) {
-                    connection.hIncrBy(((RedisSerializer<String>) redisTemplate.getKeySerializer()).serialize(key),
-                            ((RedisSerializer<String>) redisTemplate.getHashKeySerializer()).serialize(entry.getKey()), entry.getValue());
-                }
-                return null;
+        redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, Long> entry : map.entrySet()) {
+                connection.hIncrBy(((RedisSerializer<String>) redisTemplate.getKeySerializer()).serialize(key),
+                        ((RedisSerializer<String>) redisTemplate.getHashKeySerializer()).serialize(entry.getKey()), entry.getValue());
             }
+            return null;
         });
         return true;
     }
@@ -1190,19 +1109,16 @@ public class RedisTemplateHelper {
     public Map<String, Long> multisadd(int dbIndex, String key, Map<String, String> valueMap) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, Long> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (String value : valueMap.values()) {
-                    try {
-                        connection.sAdd(redisTemplate.getStringSerializer().serialize(key), redisTemplate.getStringSerializer().serialize(value));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multisadd error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (String value : valueMap.values()) {
+                try {
+                    connection.sAdd(redisTemplate.getStringSerializer().serialize(key), redisTemplate.getStringSerializer().serialize(value));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multisadd error", e);
                 }
-
-                return null;
             }
+
+            return null;
         });
         if (resultList != null && resultList.size() == valueMap.size()) {
             int i = 0;
@@ -1496,17 +1412,14 @@ public class RedisTemplateHelper {
 
     public <T> Boolean multizadd(int dbIndex, String key, List<T> memberList, List<Double> scoreList) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
-        redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                int i = 0;
-                for (T member : memberList) {
-                    connection.zAdd(((RedisSerializer<String>) redisTemplate.getKeySerializer()).serialize(key), scoreList.get(i)
-                            , ((RedisSerializer<String>) redisTemplate.getValueSerializer()).serialize(JSON.toJSONString(member)));
-                    i++;
-                }
-                return null;
+        redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            int i = 0;
+            for (T member : memberList) {
+                connection.zAdd(((RedisSerializer<String>) redisTemplate.getKeySerializer()).serialize(key), scoreList.get(i),
+                        ((RedisSerializer<String>) redisTemplate.getValueSerializer()).serialize(JSON.toJSONString(member)));
+                i++;
             }
+            return null;
         });
         return true;
     }
@@ -1543,18 +1456,15 @@ public class RedisTemplateHelper {
     public Map<String, Integer> multizcount(int dbIndex, Map<String, String> map, double min, double max) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, Integer> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, String> entry : map.entrySet()) {
-                    try {
-                        connection.zCount(redisTemplate.getStringSerializer().serialize(entry.getValue()), min, max);
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multizrank error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                try {
+                    connection.zCount(redisTemplate.getStringSerializer().serialize(entry.getValue()), min, max);
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multizrank error", e);
                 }
-                return null;
             }
+            return null;
         });
         if (resultList != null && resultList.size() == map.size()) {
             int i = 0;
@@ -1631,18 +1541,15 @@ public class RedisTemplateHelper {
     public Map<String, Set<String>> multizrange(int dbIndex, Map<String, String> map, long start, long stop) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, Set<String>> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, String> entry : map.entrySet()) {
-                    try {
-                        connection.zRange(redisTemplate.getStringSerializer().serialize(entry.getValue()), start, stop);
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multizrange error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                try {
+                    connection.zRange(redisTemplate.getStringSerializer().serialize(entry.getValue()), start, stop);
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multizrange error", e);
                 }
-                return null;
             }
+            return null;
         });
         if (resultList != null && resultList.size() == map.size()) {
             int i = 0;
@@ -1716,18 +1623,15 @@ public class RedisTemplateHelper {
     public Map<String, Integer> multizrank(int dbIndex, Map<String, String> valueKeyMap) {
         RedisTemplate.LOCAL_DB_INDEX.set(dbIndex);
         Map<String, Integer> resultMap = new HashMap<>();
-        List<Object> resultList = redisTemplate.executePipelined(new RedisCallback<Object>() {
-            @Override
-            public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                for (Map.Entry<String, String> entry : valueKeyMap.entrySet()) {
-                    try {
-                        connection.zRank(redisTemplate.getStringSerializer().serialize(entry.getValue()), redisTemplate.getStringSerializer().serialize(entry.getKey()));
-                    } catch (Exception e) {
-                        logger.error("RedisTemplateHelper.multizrank error", e);
-                    }
+        List<Object> resultList = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Map.Entry<String, String> entry : valueKeyMap.entrySet()) {
+                try {
+                    connection.zRank(redisTemplate.getStringSerializer().serialize(entry.getValue()), redisTemplate.getStringSerializer().serialize(entry.getKey()));
+                } catch (Exception e) {
+                    logger.error("RedisTemplateHelper.multizrank error", e);
                 }
-                return null;
             }
+            return null;
         });
         if (resultList != null && resultList.size() == valueKeyMap.size()) {
             int i = 0;
